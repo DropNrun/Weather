@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using System;
 using System.Data.Common;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
@@ -25,22 +26,27 @@ HttpClient MeteoClient = new()
 MemoryCacheOptions cacheOptions = new MemoryCacheOptions() { };
 MemoryCache cache = new MemoryCache(cacheOptions);
 
-app.MapWhen(context => Regex.IsMatch(context.Request.Path, @"/\d{2}/\d{2}$"), appBuilder =>
+app.MapWhen(context => Regex.IsMatch(context.Request.Path, @"/[+-]?([0-9]*[.])?[0-9]+/[+-]?([0-9]*[.])?[0-9]+"), appBuilder =>
 {
-    WeatherForecast a;
     appBuilder.Run(async context=>
     {
         string latitude = context.Request.Path.Value?.Split("/")[1];
         string longitude = context.Request.Path.Value?.Split("/")[2];
-
+    
+    if ((double.Parse(latitude, CultureInfo.InvariantCulture) > 90 || double.Parse(latitude,CultureInfo.InvariantCulture) < -90.0) || (double.Parse(longitude, CultureInfo.InvariantCulture) > 90.0 || double.Parse(longitude, CultureInfo.InvariantCulture) < -90.0))
+    { 
+        await context.Response.WriteAsync("Incorrect data");
+    }
+    else
+    {
         HttpResponseMessage response = await MeteoClient.GetAsync($"/v1/forecast?latitude={latitude} &longitude= {longitude}&current_weather=true");
-        
+
         GettingW serv = new GettingW(context, cache);
 
         WeatherForecast wForecast = await serv.GetWeather(latitude, longitude, MeteoClient);
-        a = wForecast;
-        Console.WriteLine($"Температура: { wForecast.current_weather.temperature}\nСкорость ветра: {wForecast.current_weather.windspeed}");
+        Console.WriteLine($"\nТемпература: {wForecast.current_weather.temperature}\nСкорость ветра: {wForecast.current_weather.windspeed}");
         await context.Response.WriteAsync($"Temperature: {wForecast.current_weather.temperature}\nWindspeed: {wForecast.current_weather.windspeed}");
+    }
     });
 });
 
@@ -72,12 +78,12 @@ public class GettingW
         {
             WeatherForecast? weather = await MeteoClient.GetFromJsonAsync<WeatherForecast>($"/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true");
             cache.Set(data, weather, cacheOptions);
-            Console.WriteLine("Данные с сайта");
+            Console.WriteLine("\nДанные с сайта");
             return weather;
         }
         else
         {
-            Console.WriteLine("Данные из кэша");
+            Console.WriteLine("\nДанные из кэша");
             return w;
         }
     }
